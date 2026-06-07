@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
 from contextlib import asynccontextmanager
 
@@ -15,6 +16,41 @@ settings = get_settings("analytics-service")
 logger = configure_logging(settings.service_name)
 event_counts: Counter[str] = Counter()
 recent_events: list[dict[str, object]] = []
+
+
+def _database_enabled() -> bool:
+    return bool(settings.database_url)
+
+
+async def _analytics_from_event_log() -> dict[str, object]:
+    return await asyncio.to_thread(_analytics_from_event_log_sync)
+
+
+def _analytics_from_event_log_sync() -> dict[str, object]:
+    import psycopg
+    from psycopg.rows import dict_row
+
+    with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+        count_rows = conn.execute(
+            """
+            SELECT event_type, COUNT(*) AS count
+            FROM event_log
+            GROUP BY event_type
+            """
+        ).fetchall()
+        recent_rows = conn.execute(
+            """
+            SELECT event_type, aggregate_id, correlation_id, source
+            FROM event_log
+            ORDER BY occurred_at DESC, created_at DESC
+            LIMIT 20
+            """
+        ).fetchall()
+
+    return {
+        "counts": {str(row["event_type"]): int(row["count"]) for row in count_rows},
+        "recent_events": [dict(row) for row in reversed(recent_rows)],
+    }
 
 
 async def handle_any_event(event: EventEnvelope) -> None:
@@ -62,6 +98,8 @@ async def health(request: Request) -> dict[str, object]:
 
 @app.get("/events")
 async def get_event_counts() -> dict[str, object]:
+    if _database_enabled():
+        return await _analytics_from_event_log()
     return {"counts": dict(event_counts), "recent_events": recent_events}
 
 
@@ -77,4 +115,3 @@ async def publish_snapshot(request: Request) -> dict[str, object]:
     await request.app.state.event_bus.publish(event)
     log_event(logger, settings.service_name, "analytics snapshot published")
     return payload
-

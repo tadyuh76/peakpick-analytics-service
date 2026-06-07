@@ -66,6 +66,20 @@ async def handle_any_event(event: EventEnvelope) -> None:
     del recent_events[:-20]
 
 
+def operations_summary() -> dict[str, object]:
+    paid = event_counts.get(EventType.ORDER_PAID.value, 0)
+    picked_up = event_counts.get(EventType.ORDER_PICKED_UP.value, 0)
+    return {
+        "orders_paid": paid,
+        "orders_ready": event_counts.get(EventType.ORDER_READY.value, 0),
+        "orders_picked_up": picked_up,
+        "inventory_reservations": event_counts.get(EventType.INVENTORY_RESERVED.value, 0),
+        "inventory_shortages": event_counts.get(EventType.INVENTORY_SHORTAGE_DETECTED.value, 0),
+        "notifications_requested": event_counts.get(EventType.NOTIFICATION_REQUESTED.value, 0),
+        "pickup_completion_rate": picked_up / paid if paid else 0,
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     event_bus = build_event_bus(settings)
@@ -101,6 +115,11 @@ async def get_event_counts() -> dict[str, object]:
     if _database_enabled():
         return await _analytics_from_event_log()
     return {"counts": dict(event_counts), "recent_events": recent_events}
+
+
+@app.get("/operations/summary")
+async def get_operations_summary() -> dict[str, object]:
+    return operations_summary()
 
 
 @app.post("/snapshot")

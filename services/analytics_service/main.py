@@ -8,8 +8,9 @@ from fastapi import FastAPI, Request
 
 from shared.event_bus import build_event_bus
 from shared.events import EventEnvelope, EventType, new_event
-from shared.logging import configure_logging, log_event
+from shared.logging import configure_logging, install_api_logging, log_event
 from shared.settings import get_settings
+from shared.tenancy import DEFAULT_STORE_ID, store_id_from_event_payload, store_id_from_request
 
 
 settings = get_settings("analytics-service")
@@ -22,11 +23,11 @@ def _database_enabled() -> bool:
     return bool(settings.database_url)
 
 
-async def _analytics_from_event_log() -> dict[str, object]:
-    return await asyncio.to_thread(_analytics_from_event_log_sync)
+async def _analytics_from_event_log(store_id: str = DEFAULT_STORE_ID) -> dict[str, object]:
+    return await asyncio.to_thread(_analytics_from_event_log_sync, store_id)
 
 
-def _analytics_from_event_log_sync() -> dict[str, object]:
+def _analytics_from_event_log_sync(store_id: str) -> dict[str, object]:
     import psycopg
     from psycopg.rows import dict_row
 
@@ -35,16 +36,21 @@ def _analytics_from_event_log_sync() -> dict[str, object]:
             """
             SELECT event_type, COUNT(*) AS count
             FROM event_log
+            WHERE store_id = %s
             GROUP BY event_type
             """
+            ,
+            (store_id,),
         ).fetchall()
         recent_rows = conn.execute(
             """
-            SELECT event_type, aggregate_id, correlation_id, source
+            SELECT event_type, aggregate_id, correlation_id, source, store_id
             FROM event_log
+            WHERE store_id = %s
             ORDER BY occurred_at DESC, created_at DESC
             LIMIT 20
-            """
+            """,
+            (store_id,),
         ).fetchall()
 
     return {
@@ -61,6 +67,7 @@ async def handle_any_event(event: EventEnvelope) -> None:
             "aggregate_id": event.aggregate_id,
             "correlation_id": event.correlation_id,
             "source": event.source,
+            "store_id": store_id_from_event_payload(event.payload),
         }
     )
     del recent_events[:-20]
@@ -99,6 +106,7 @@ app = FastAPI(
     description="Event counters, slot utilization, and peak-hour demand signals.",
     lifespan=lifespan,
 )
+install_api_logging(app, logger, settings.service_name)
 
 
 @app.get("/health")
@@ -111,9 +119,9 @@ async def health(request: Request) -> dict[str, object]:
 
 
 @app.get("/events")
-async def get_event_counts() -> dict[str, object]:
+async def get_event_counts(request: Request) -> dict[str, object]:
     if _database_enabled():
-        return await _analytics_from_event_log()
+        return await _analytics_from_event_log(store_id_from_request(request))
     return {"counts": dict(event_counts), "recent_events": recent_events}
 
 

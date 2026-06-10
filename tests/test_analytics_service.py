@@ -29,3 +29,34 @@ async def test_operations_summary_counts_member3_lifecycle() -> None:
     assert response.json()["orders_ready"] == 1
     assert response.json()["orders_picked_up"] == 1
     assert response.json()["inventory_reservations"] == 1
+
+
+def test_operations_summary_uses_persisted_counts_when_database_is_enabled(monkeypatch) -> None:
+    async def fake_analytics_from_event_log(store_id: str) -> dict[str, object]:
+        assert store_id == "store-ueh"
+        return {
+            "counts": {
+                EventType.ORDER_PAID.value: 4,
+                EventType.ORDER_READY.value: 3,
+                EventType.ORDER_PICKED_UP.value: 2,
+                EventType.INVENTORY_RESERVED.value: 4,
+                EventType.NOTIFICATION_REQUESTED.value: 3,
+            },
+            "recent_events": [],
+        }
+
+    monkeypatch.setattr("services.analytics_service.main._database_enabled", lambda: True)
+    monkeypatch.setattr("services.analytics_service.main._analytics_from_event_log", fake_analytics_from_event_log)
+
+    response = client.get("/operations/summary", headers={"x-store-id": "store-ueh"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "orders_paid": 4,
+        "orders_ready": 3,
+        "orders_picked_up": 2,
+        "inventory_reservations": 4,
+        "inventory_shortages": 0,
+        "notifications_requested": 3,
+        "pickup_completion_rate": 0.5,
+    }

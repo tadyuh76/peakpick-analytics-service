@@ -1,1 +1,2 @@
-"""Dịch vụ Analytics."""
+"""Analytics service."""
+

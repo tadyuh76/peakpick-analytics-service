@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from collections.abc import Mapping
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -74,17 +73,16 @@ async def handle_any_event(event: EventEnvelope) -> None:
     del recent_events[:-20]
 
 
-def operations_summary(counts: Mapping[str, int] | None = None) -> dict[str, object]:
-    source_counts = counts if counts is not None else event_counts
-    paid = source_counts.get(EventType.ORDER_PAID.value, 0)
-    picked_up = source_counts.get(EventType.ORDER_PICKED_UP.value, 0)
+def operations_summary() -> dict[str, object]:
+    paid = event_counts.get(EventType.ORDER_PAID.value, 0)
+    picked_up = event_counts.get(EventType.ORDER_PICKED_UP.value, 0)
     return {
         "orders_paid": paid,
-        "orders_ready": source_counts.get(EventType.ORDER_READY.value, 0),
+        "orders_ready": event_counts.get(EventType.ORDER_READY.value, 0),
         "orders_picked_up": picked_up,
-        "inventory_reservations": source_counts.get(EventType.INVENTORY_RESERVED.value, 0),
-        "inventory_shortages": source_counts.get(EventType.INVENTORY_SHORTAGE_DETECTED.value, 0),
-        "notifications_requested": source_counts.get(EventType.NOTIFICATION_REQUESTED.value, 0),
+        "inventory_reservations": event_counts.get(EventType.INVENTORY_RESERVED.value, 0),
+        "inventory_shortages": event_counts.get(EventType.INVENTORY_SHORTAGE_DETECTED.value, 0),
+        "notifications_requested": event_counts.get(EventType.NOTIFICATION_REQUESTED.value, 0),
         "pickup_completion_rate": picked_up / paid if paid else 0,
     }
 
@@ -128,12 +126,7 @@ async def get_event_counts(request: Request) -> dict[str, object]:
 
 
 @app.get("/operations/summary")
-async def get_operations_summary(request: Request) -> dict[str, object]:
-    if _database_enabled():
-        analytics = await _analytics_from_event_log(store_id_from_request(request))
-        counts = analytics["counts"]
-        if isinstance(counts, dict):
-            return operations_summary({str(key): int(value) for key, value in counts.items()})
+async def get_operations_summary() -> dict[str, object]:
     return operations_summary()
 
 

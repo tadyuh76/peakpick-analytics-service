@@ -1,12 +1,20 @@
 # PeakPick Analytics Service
 
-Owns analytics read models based on consumed domain events.
+Analytics Service là microservice đọc domain events và tạo thống kê vận hành đơn giản.
 
-Owned database tables:
+## Database Riêng
 
-- local `event_log`
+Service này sở hữu database `peakpick_analytics` với bảng:
 
-Run locally:
+- `event_log`
+
+## Trách Nhiệm
+
+- Đếm số lượng event quan trọng.
+- Trả snapshot gần nhất cho dashboard.
+- Tính summary như số đơn đã thanh toán, sẵn sàng và đã pickup.
+
+## Chạy Local
 
 ```bash
 pip install -r requirements.txt
